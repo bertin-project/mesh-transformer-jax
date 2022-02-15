@@ -14,6 +14,7 @@ from tqdm import tqdm
 import datasets
 from itertools import islice
 
+
 def iter_tokens(input_ids, eos_token_id):
     for token_ids in input_ids:
         for token_id in token_ids:
@@ -64,21 +65,34 @@ def write_tfrecord(sequences, fp):
             write_to_file(writer, seq)
 
 
+def generate_sample(dataset, epochs, key):
+    for epoch in range(epochs):
+        for sample in dataset:
+            yield sample[key]
+
+
 def main():
-    GPT2TokenizerFast.max_model_input_sizes['gpt2'] = 1e20  # disables a misleading warning
+    GPT2TokenizerFast.max_model_input_sizes[
+        "gpt2"
+    ] = 1e20  # disables a misleading warning
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
     epochs = 3
     seq_length = 2048
 
-    ncc = datasets.load_dataset("NbAiLab/NCC", split="train", streaming=True, use_auth_token=True)
-    ncc = ncc.map(lambda x: tokenizer(x["text"]), batched=True)
-    total = epochs * len(ncc['input_ids'])
-    seqs = tqdm(
-        split_every(seq_length, iter_tokens(datasets.concatenate_datasets(epochs * ncc)["input_ids"], tokenizer.eos_token_id)),
-        desc="Writing token ids as TF records",
-        total=total
+    ncc = datasets.load_dataset(
+        "NbAiLab/NCC", split="validation", streaming=True, use_auth_token=True
     )
-    write_tfrecord(seqs, f"ncc_{total}.tfrecords")
+    ncc = ncc.map(lambda x: tokenizer(x["text"]), batched=True)
+    seqs = tqdm(
+        split_every(
+            seq_length,
+            iter_tokens(
+                generate_sample(ncc, epochs, "input_ids"), tokenizer.eos_token_id
+            ),
+        ),
+        desc="Writing token ids as TF records",
+    )
+    write_tfrecord(seqs, f"ncc_val.tfrecords")
 
 
 if __name__ == "__main__":
