@@ -24,7 +24,7 @@
   "tpu_size": 8,
 
   "bucket": "nb-gpt-j-6b",
-  "model_dir": "mesh_jax_pile_6B_rotary",
+  "model_dir": "gpt-j-6b-ncc",
 
   "train_set": "ncc.train.index",
   "val_set": {"ncc": "ncc.val.index"},
@@ -34,7 +34,7 @@
   "ckpt_every": 1000,
   "keep_every": 10000,
 
-  "name": "NB-GPT-J-6B-NCC",
-  "wandb_project": "mesh-transformer-jax",
+  "name": "gpt-j-6b-ncc",
+  "wandb_project": "gpt-j-6b",
   "comment": ""
 }
