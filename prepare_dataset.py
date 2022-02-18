@@ -1,14 +1,12 @@
+#!/usr/bin/env python
 import argparse
 import os
-import re
-import random
 
 from pathlib import Path
 from typing import List
 
-import ftfy
+# import ftfy
 import tensorflow as tf
-from lm_dataformat import Reader
 from transformers import GPT2TokenizerFast
 from tqdm import tqdm
 import datasets
@@ -52,7 +50,7 @@ def _int64_feature(value):
 
 def write_to_file(writer, data):
     """
-    writes data to tfrecord file
+    Writes data to tfrecord file
     """
     feature = {"text": _int64_feature(data)}
     tf_example = tf.train.Example(features=tf.train.Features(feature=feature))
@@ -61,39 +59,124 @@ def write_to_file(writer, data):
 
 def write_tfrecord(sequences, fp):
     with tf.io.TFRecordWriter(fp) as writer:
-        for seq in sequences:
+        for idx, seq in enumerate(sequences):
             write_to_file(writer, seq)
+    return idx
 
 
-def generate_sample(dataset, epochs, key):
+def generate_sample(dataset, epochs, key, preserve_data_order=False):
     for epoch in range(epochs):
+        if not preserve_data_order:
+            dataset.set_epoch(epoch)
         for sample in dataset:
             yield sample[key]
 
 
-def main():
+def main(args):
     GPT2TokenizerFast.max_model_input_sizes[
         "gpt2"
     ] = 1e20  # disables a misleading warning
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
-    epochs = 3
-    seq_length = 2048
+    epochs = args.n_repack_epochs
+    seq_length = args.sequence_length
 
     ncc = datasets.load_dataset(
-        "NbAiLab/NCC", split="validation", streaming=True, use_auth_token=True
+        args.dataset,
+        name=args.dataset_config or None,
+        split=args.dataset_split,
+        streaming=True,
+        use_auth_token=True,
     )
-    ncc = ncc.map(lambda x: tokenizer(x["text"]), batched=True)
+    if not args.preserve_data_order:
+        ncc = ncc.shuffle(args.dataset_buffer_size, seed=args.seed)
+    ncc = ncc.map(lambda x: tokenizer(x[args.dataset_text_column]), batched=True)
     seqs = tqdm(
         split_every(
             seq_length,
             iter_tokens(
-                generate_sample(ncc, epochs, "input_ids"), tokenizer.eos_token_id
+                generate_sample(ncc, epochs, "input_ids", args.preserve_data_order), tokenizer.eos_token_id
             ),
         ),
         desc="Writing token ids as TF records",
     )
-    write_tfrecord(seqs, f"ncc_val.tfrecords")
+    filepath = args.output_dir / f"{args.name}.tfrecords"
+    seq_count = write_tfrecord(seqs, filepath.as_posix())
+    filepath_seq = args.output_dir / f"{args.name}_{seq_count}.tfrecords"
+    os.rename(filepath.as_posix(), filepath_seq.as_posix())
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="""
+    Converts a text dataset from Huggingface into the training data format expected by the model.
+    This script creates a single .tfrecords file as output
+        - Why: the model's data loader ignores "trailing" data (< 1 batch) at the end of a .tfrecords file
+            - this causes data loss if you have many .tfrecords files
+        - This is probably not appropriate for very large datasets
+    """, formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument("name", type=str,
+                        help="Name of output file will be {name}_{seqnum}.tfrecords, where seqnum is total sequence count")
+
+    parser.add_argument(
+        "dataset",
+        type=str,
+        help="Dataset path or hub name.",
+    )
+    parser.add_argument(
+        "--dataset_config",
+        type=str, default="",
+        help="Dataset config.",
+    )
+    parser.add_argument(
+        "--dataset_split",
+        type=str, default="train",
+        help="Dataset split. It accepts any Huggingface datasets expression for splits.",
+    )
+    parser.add_argument(
+        "--dataset_text_column",
+        type=str, default="text",
+        help="Dataset text field name.",
+    )
+    parser.add_argument(
+        "--dataset_buffer_size",
+        type=int, default=10_000,
+        help="Dataset buffer size for shuffling.",
+    )
+    parser.add_argument(
+        "--sequence_length",
+        type=int, default=2048,
+        help="Sequence length of each TF record.",
+    )
+
+    parser.add_argument("--output-dir", type=str, default="", help="Output directory (default: current directory)")
+
+    # cleaning_args = parser.add_argument_group('data cleaning arguments')
+
+    # cleaning_args.add_argument("--normalize-with-ftfy", action="store_true", help="Normalize text with ftfy")
+    # cleaning_args.add_argument("--normalize-with-wikitext-detokenize",
+    #                            action="store_true", help="Use wikitext detokenizer")
+    # minu_help = "Exclude repetitive documents made up of < MIN_UNIQUE_TOKENS unique tokens. These can produce large gradients."
+    # minu_help += " Set <= 0 to disable. If enabled, 200 is a good default value. (Default: 0)"
+    # cleaning_args.add_argument("--min-unique-tokens", type=int, default=0,
+    #                            help=minu_help)
+
+    shuffle_pack_args = parser.add_argument_group('data shuffling/packing arguments')
+    repack_ep_help = "Repeat the data N_REPACK_EPOCHS times, shuffled differently in each repetition. Recommended for multi-epoch training (set this to your intended number of epochs)."
+    shuffle_pack_args.add_argument("--n-repack-epochs",
+                                   type=int, default=1,
+                                   help=repack_ep_help
+                                   )
+    shuffle_pack_args.add_argument("--seed", type=int, default=10,
+                                   help="random seed for shuffling data (default: 10)")
+    shuffle_pack_args.add_argument("--preserve-data-order",
+                                   default=False, action="store_true",
+                                   help="Disables shuffling, so the input and output data have the same order.")
+
+    args = parser.parse_args()
+
+    # convert output_dir to pathy
+    args.output_dir = Path(args.output_dir)
+
+    return args
 
 if __name__ == "__main__":
-    main()
+    main(parse_args())
