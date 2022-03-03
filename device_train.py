@@ -167,12 +167,12 @@ if __name__ == "__main__":
     lr = params["lr"]
     end_lr = params["end_lr"]
     weight_decay = params["weight_decay"]
-   
+
     # alpha parameter for the exponential moving averages used to compute B_simple
     noise_scale_alpha = params.get("noise_scale_alpha", 0.01)
 
     scheduler = util.gpt3_schedule(warmup_steps, anneal_steps, lr, end_lr)
-    
+
     opt = optax.chain(
         optax.scale(1 / gradient_accumulation_steps),
         clip_by_global_norm(1),
@@ -283,7 +283,7 @@ if __name__ == "__main__":
             network, train_dataset.get_samples()
         )
         step += 1
-        progress.update(step)
+        progress.update()
         print(f"Train fn compiled in {time.time() - start:.06}s")
 
         print('compiling eval fn')
@@ -332,7 +332,7 @@ if __name__ == "__main__":
                 network, train_dataset.get_samples()
             )
             step += 1
-            progress.update(step)
+            progress.update()
 
             steps_per_sec = 1 / (time.time() - start)
             tokens_per_sec = tokens_per_step * steps_per_sec
