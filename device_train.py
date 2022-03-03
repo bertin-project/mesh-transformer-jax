@@ -197,6 +197,7 @@ if __name__ == "__main__":
 
     # pick initial ckpt - based on tuning vs train from scratch
 
+    progress = tqdm(total=total_steps, desc="Training", unit="step")
     step = 0
     initial_ckpt_state_path = None
     train_loader = None
@@ -221,6 +222,7 @@ if __name__ == "__main__":
 
             step = ckpt_step
             train_loader = meta['aux'][str(ckpt_step)].get("train_loader", None)
+            progress.update(step)
         except NotFound:
             # no checkpoint, start at zero
             print(f"No checkpoint to load at {initial_ckpt_path}. Training from scratch.")
@@ -281,6 +283,7 @@ if __name__ == "__main__":
             network, train_dataset.get_samples()
         )
         step += 1
+        progress.update(step)
         print(f"Train fn compiled in {time.time() - start:.06}s")
 
         print('compiling eval fn')
@@ -320,6 +323,7 @@ if __name__ == "__main__":
                     wandb.log({f'val/loss_{name}': float(val_loss)}, step)
 
             if step == total_steps:
+                progress.close()
                 print("training completed!")
                 exit()
 
@@ -328,6 +332,7 @@ if __name__ == "__main__":
                 network, train_dataset.get_samples()
             )
             step += 1
+            progress.update(step)
 
             steps_per_sec = 1 / (time.time() - start)
             tokens_per_sec = tokens_per_step * steps_per_sec
