@@ -1,0 +1,45 @@
+{
+  "layers": 28,
+  "d_model": 4096,
+  "n_heads": 16,
+  "n_vocab": 50400,
+  "norm": "layernorm",
+  "pe": "rotary",
+  "pe_rotary_dims": 64,
+
+  "seq": 2048,
+  "cores_per_replica": 8,
+  "per_replica_batch": 1,
+  "gradient_accumulation_steps": 32,
+
+  "eval_harness_tasks": [],
+
+  "warmup_steps":  6576,
+  "anneal_steps": 59186,
+  "lr": 2e-5,
+  "end_lr": 2e-6,
+  "weight_decay": 0.1,
+  "total_steps": 65762,
+
+  "tpu_size": 8,
+
+  "bucket": "bertin-project",
+  "model_dir": "gpt-j-6b-libros",
+
+  "train_set": "infolibros_es.train.index",
+  "val_set": {"infolibros_es.val": "infolibros_es.val.index"},
+
+  "eval_harness_tasks": [
+    "lambada_mt_es",
+    "headqa_es"
+  ],
+
+  "val_batches": 100,
+  "val_every": 1000,
+  "ckpt_every": 1000,
+  "keep_every": 10000,
+
+  "name": "gaussian",
+  "wandb_project": "bertin-gpt-j-6b-libros",
+  "comment": ""
+}
