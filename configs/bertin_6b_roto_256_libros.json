@@ -14,12 +14,12 @@
 
   "eval_harness_tasks": [],
 
-  "warmup_steps":  6576,
-  "anneal_steps": 59186,
+  "warmup_steps":  2136,
+  "anneal_steps": 19229,
   "lr": 2e-5,
   "end_lr": 2e-6,
   "weight_decay": 0.1,
-  "total_steps": 65762,
+  "total_steps": 21365,
 
   "tpu_size": 8,
 
@@ -27,7 +27,7 @@
   "model_dir": "gpt-j-6b-libros",
 
   "train_set": "infolibros_es.train.index",
-  "val_set": {"infolibros_es.val": "infolibros_es.val.index"},
+  "val_set": {"infolibros_es": "infolibros_es.val.index"},
 
   "eval_harness_tasks": [
     "lambada_mt_es",
