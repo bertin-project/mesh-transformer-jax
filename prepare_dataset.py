@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 import argparse
+import re
 import os
-
+from functools import partial
 from pathlib import Path
 from typing import List
 
@@ -11,6 +12,27 @@ from transformers import GPT2TokenizerFast
 from tqdm import tqdm
 import datasets
 from itertools import islice
+
+newlines_re = re.compile(r"\n\n+")
+copy_re = re.compile(r"^.*(©|\([ \t]*c[ \t]*\)|copyright|ISBN).*$", re.IGNORECASE)
+notes_re = re.compile(r"[\[\(][0-9]{1,5}[\]\)]", re.IGNORECASE)
+
+
+def clean_text(text):
+    if isinstance(text, dict):
+        return newlines_re.sub("\n\n", notes_re.sub("", copy_re.sub("", text))).strip()
+    else:
+        texts = text
+        return [newlines_re.sub("\n\n", notes_re.sub("", copy_re.sub("", text))).strip() for text in texts]
+
+
+def remove_empty_texts(sample, column):
+    text = sample[column]
+    if isinstance(text, str):
+        return text and not text.isspace()
+    else:
+        texts = text
+        return [text and not text.isspace() for text in texts]
 
 
 def iter_tokens(input_ids, eos_token_id):
@@ -80,21 +102,33 @@ def main(args):
     epochs = args.n_repack_epochs
     seq_length = args.sequence_length
 
-    ncc = datasets.load_dataset(
+    ds = datasets.load_dataset(
         args.dataset,
         name=args.dataset_config or None,
         split=args.dataset_split,
-        streaming=True,
+        streaming=args.streaming,
         use_auth_token=True,
     )
     if not args.preserve_data_order:
-        ncc = ncc.shuffle(args.dataset_buffer_size, seed=args.seed)
-    ncc = ncc.map(lambda x: tokenizer(x[args.dataset_text_column]), batched=True)
+        print("Shuffling data")
+        ds = ds.shuffle(args.dataset_buffer_size, seed=args.seed)
+    if args.streaming:
+        map_kwargs = {"batched": True}
+    else:
+        map_kwargs = {"batched": True, "num_proc": os.cpu_count()}
+    if args.normalize_numbers_spaces:
+        print("Normalizing spaces, notes, and page numbers")
+        ds = ds.map(lambda x: {args.dataset_text_column: clean_text(x[args.dataset_text_column])}, **map_kwargs)
+    if args.remove_empty:
+        print("Removing empty documents")
+        ds = ds.filter(partial(remove_empty_texts, column=args.dataset_text_column), **map_kwargs)
+    print(ds)
+    ds = ds.map(lambda x: tokenizer(x[args.dataset_text_column]), **map_kwargs)
     seqs = tqdm(
         split_every(
             seq_length,
             iter_tokens(
-                generate_sample(ncc, epochs, "input_ids", args.preserve_data_order), tokenizer.eos_token_id
+                generate_sample(ds, epochs, "input_ids", args.preserve_data_order), tokenizer.eos_token_id
             ),
         ),
         desc="Writing token ids as TF records",
@@ -146,10 +180,12 @@ def parse_args():
         type=int, default=2048,
         help="Sequence length of each TF record.",
     )
-
+    parser.add_argument("--streaming", action="store_true", help="Whether to stream the dataset or not")
     parser.add_argument("--output-dir", type=str, default="", help="Output directory (default: current directory)")
 
-    # cleaning_args = parser.add_argument_group('data cleaning arguments')
+    cleaning_args = parser.add_argument_group('data cleaning arguments')
+    cleaning_args.add_argument("--remove_empty", action="store_true", help="Remove empty documents with only space characters in it")
+    cleaning_args.add_argument("--normalize_numbers_spaces", action="store_true", help="Converts double breaklines to simple and remove page numbers and notes")
 
     # cleaning_args.add_argument("--normalize-with-ftfy", action="store_true", help="Normalize text with ftfy")
     # cleaning_args.add_argument("--normalize-with-wikitext-detokenize",
