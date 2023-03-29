@@ -2,3 +2,4 @@
 *.pprof
 /ckpt/
 wandb/
+*.egg-info/
