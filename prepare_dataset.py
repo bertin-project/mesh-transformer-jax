@@ -50,6 +50,7 @@ def split_every_with_padding(n, iterable, pad_token_type_id=None):
     while piece:
         if len(piece) < n:
             piece += [pad_token_type_id] * (n - len(piece))
+        print(len(piece), piece[-10:])
         yield piece
         piece = list(islice(i, n))
 
@@ -111,7 +112,7 @@ def main(args):
     )
     if not args.preserve_data_order:
         print("Shuffling data")
-        ds = ds.shuffle(args.dataset_buffer_size, seed=args.seed)
+        ds = ds.shuffle(buffer_size=args.dataset_buffer_size, seed=args.seed)
     if args.streaming:
         map_kwargs = {"batched": True}
     else:
@@ -123,16 +124,30 @@ def main(args):
         print("Removing empty documents")
         ds = ds.filter(partial(remove_empty_texts, column=args.dataset_text_column), **map_kwargs)
     print(ds)
-    ds = ds.map(lambda x: tokenizer(x[args.dataset_text_column]), **map_kwargs)
-    seqs = tqdm(
-        split_every(
-            seq_length,
-            iter_tokens(
-                generate_sample(ds, epochs, "input_ids", args.preserve_data_order), tokenizer.eos_token_id
+    if args.pad_to_sequence_length:
+        print(f"Padding documents to {seq_length} with token id {tokenizer.eos_token_id}.")
+        tokenizer.pad_token = tokenizer.eos_token
+        ds = ds.map(
+            lambda x: tokenizer(x[args.dataset_text_column], truncation=True, padding='max_length', max_length=seq_length),
+            #desc="Writing token ids as TF records",
+            **map_kwargs
+        )
+        seqs = tqdm(
+            generate_sample(ds, epochs, "input_ids", args.preserve_data_order),
+            desc="Writing token ids as TF records",
+        )
+
+    else:
+        ds = ds.map(lambda x: tokenizer(x[args.dataset_text_column]), **map_kwargs)
+        seqs = tqdm(
+            split_every(
+                seq_length,
+                iter_tokens(
+                    generate_sample(ds, epochs, "input_ids", args.preserve_data_order), tokenizer.eos_token_id
+                ),
             ),
-        ),
-        desc="Writing token ids as TF records",
-    )
+            desc="Writing token ids as TF records",
+        )
     filepath = args.output_dir / f"{args.name}.tfrecords"
     seq_count = write_tfrecord(seqs, filepath.as_posix())
     filepath_seq = args.output_dir / f"{args.name}_{seq_count}.tfrecords"
@@ -180,6 +195,7 @@ def parse_args():
         type=int, default=2048,
         help="Sequence length of each TF record.",
     )
+    parser.add_argument("--pad_to_sequence_length", action="store_true", help="Whether to pad to max sequence length each document or not")
     parser.add_argument("--streaming", action="store_true", help="Whether to stream the dataset or not")
     parser.add_argument("--output-dir", type=str, default="", help="Output directory (default: current directory)")
 
